@@ -15,8 +15,10 @@ from data_utils import TestDatasetFromFolder, display_transform
 from model import Generator
 
 parser = argparse.ArgumentParser(description='Test Benchmark Datasets')
-parser.add_argument('--upscale_factor', default=4, type=int, help='super resolution upscale factor')
-parser.add_argument('--model_name', default='netG_epoch_4_100.pth', type=str, help='generator model epoch name')
+parser.add_argument('--upscale_factor', default=4, type=int,
+                    help='super resolution upscale factor')
+parser.add_argument('--model_name', default='netG_epoch_4_100.pth',
+                    type=str, help='generator model epoch name')
 opt = parser.parse_args()
 
 UPSCALE_FACTOR = opt.upscale_factor
@@ -31,7 +33,8 @@ if torch.cuda.is_available():
 model.load_state_dict(torch.load('epochs/' + MODEL_NAME))
 
 test_set = TestDatasetFromFolder('data/test', upscale_factor=UPSCALE_FACTOR)
-test_loader = DataLoader(dataset=test_set, num_workers=4, batch_size=1, shuffle=False)
+test_loader = DataLoader(dataset=test_set, num_workers=4,
+                         batch_size=1, shuffle=False)
 test_bar = tqdm(test_loader, desc='[testing benchmark datasets]')
 
 out_path = 'benchmark_results/SRF_' + str(UPSCALE_FACTOR) + '/'
@@ -77,4 +80,5 @@ for item in results.values():
     saved_results['ssim'].append(ssim)
 
 data_frame = pd.DataFrame(saved_results, results.keys())
-data_frame.to_csv(out_path + 'srf_' + str(UPSCALE_FACTOR) + '_test_results.csv', index_label='DataSet')
+data_frame.to_csv(out_path + 'srf_' + str(UPSCALE_FACTOR) +
+                  '_test_results.csv', index_label='DataSet')
