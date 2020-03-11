@@ -1,5 +1,6 @@
 import argparse
 import os
+import shutil
 from math import log10
 
 import pandas as pd
@@ -22,6 +23,24 @@ parser.add_argument('--upscale_factor', default=4, type=int, choices=[2, 4, 8],
                     help='super resolution upscale factor')
 parser.add_argument('--num_epochs', default=100,
                     type=int, help='train epoch number')
+parser.add_argument('--load_checkpoint', default="",
+                    type=str, help='load saved checkpoint')
+parser.add_argument('--checkpoint_prefix', default="default",
+                    type=str, help='choose checkpoint prefix')
+
+
+def save_ckp(state, checkpoint_name):
+    f_path = "checkpoints/" + checkpoint_name
+    torch.save(state, f_path)
+
+
+def load_ckp(checkpoint_path, netG, netD, optimizerG, optimizerD):
+    checkpoint = torch.load(checkpoint_path)
+    netG.load_state_dict(checkpoint['gen_state_dict'])
+    netD.load_state_dict(checkpoint['dis_state_dict'])
+    optimizerG.load_state_dict(checkpoint['gen_optimizer'])
+    optimizerD.load_state_dict(checkpoint['dis_optimizer'])
+    return netG, netD, optimizerG, optimizerD, checkpoint['epoch']
 
 
 if __name__ == '__main__':
@@ -30,13 +49,15 @@ if __name__ == '__main__':
     CROP_SIZE = opt.crop_size
     UPSCALE_FACTOR = opt.upscale_factor
     NUM_EPOCHS = opt.num_epochs
+    LOAD_CHECKPOINT = opt.load_checkpoint
+    CHECKPOINT_PREFIX = opt.checkpoint_prefix
 
     train_set = TrainDatasetFromFolder(
         'data/DIV2K_train_HR', crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR)
     val_set = ValDatasetFromFolder(
         'data/DIV2K_valid_HR', upscale_factor=UPSCALE_FACTOR)
     train_loader = DataLoader(
-        dataset=train_set, num_workers=4, batch_size=64, shuffle=True)
+        dataset=train_set, num_workers=4, batch_size=32, shuffle=True)
     val_loader = DataLoader(dataset=val_set, num_workers=4,
                             batch_size=1, shuffle=False)
 
@@ -56,11 +77,18 @@ if __name__ == '__main__':
 
     optimizerG = optim.Adam(netG.parameters())
     optimizerD = optim.Adam(netD.parameters())
+    start_epoch = 1
+
+    if(LOAD_CHECKPOINT != ""):
+        ckp_path = "checkpoints/" + LOAD_CHECKPOINT
+        netG, netD, optimizerG, optimizerD, start_epoch = load_ckp(
+            ckp_path, netG, netD, optimizerG, optimizerD)
+        print("Loading Checkpint " + LOAD_CHECKPOINT + "\nStarting at epoch " + str(start_epoch))
 
     results = {'d_loss': [], 'g_loss': [], 'd_score': [],
                'g_score': [], 'psnr': [], 'ssim': []}
 
-    for epoch in range(1, NUM_EPOCHS + 1):
+    for epoch in range(start_epoch, NUM_EPOCHS + 1):
         train_bar = tqdm(train_loader)
         running_results = {'batch_sizes': 0, 'd_loss': 0,
                            'g_loss': 0, 'd_score': 0, 'g_score': 0}
@@ -166,6 +194,16 @@ if __name__ == '__main__':
                    (UPSCALE_FACTOR, epoch))
         torch.save(netD.state_dict(), 'epochs/netD_epoch_%d_%d.pth' %
                    (UPSCALE_FACTOR, epoch))
+
+        checkpoint = {
+            'epoch': epoch + 1,
+            'gen_state_dict': netG.state_dict(),
+            'dis_state_dict': netD.state_dict(),
+            'gen_optimizer': optimizerG.state_dict(),
+            'dis_optimizer': optimizerD.state_dict()
+        }
+        save_ckp(checkpoint, CHECKPOINT_PREFIX + "_checkpoint_" +
+                 str(UPSCALE_FACTOR) + "_" + str(epoch) + ".pth")
         # save loss\scores\psnr\ssim
         results['d_loss'].append(
             running_results['d_loss'] / running_results['batch_sizes'])
@@ -178,6 +216,7 @@ if __name__ == '__main__':
         results['psnr'].append(valing_results['psnr'])
         results['ssim'].append(valing_results['ssim'])
 
+        # Every 10th epoch save statistics
         if epoch % 10 == 0 and epoch != 0:
             out_path = 'statistics/'
             data_frame = pd.DataFrame(
