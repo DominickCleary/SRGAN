@@ -1,20 +1,23 @@
 import argparse
 import os
 import shutil
+import time
 from math import log10
 
 import pandas as pd
+import numpy as np
 import torch.optim as optim
 import torch.utils.data
 import torchvision.utils as utils
+import torchvision.transforms as transforms
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 import pytorch_ssim
-from data_utils import TrainDatasetFromFolder, ValDatasetFromFolder, display_transform
+from data_utils import TrainDatasetFromFolder, ValDatasetFromFolder, display_transform, LoadAVADataset
 from loss import GeneratorLoss
-from model import Generator, Discriminator
+from model import *
 
 parser = argparse.ArgumentParser(description='Train Super Resolution Models')
 parser.add_argument('--crop_size', default=88, type=int,
@@ -27,6 +30,10 @@ parser.add_argument('--load_checkpoint', default="",
                     type=str, help='load saved checkpoint')
 parser.add_argument('--checkpoint_prefix', default="default",
                     type=str, help='choose checkpoint prefix')
+parser.add_argument('--ava_location', default="/media/docleary/Storage/Documents/Datasets/AVA_dataset",
+                    type=str, help='directory of the AVA dataset')
+parser.add_argument('--batch_size', default=32,
+                    type=int, help='batch size')
 
 
 def save_ckp(state, checkpoint_name):
@@ -43,21 +50,13 @@ def load_ckp(checkpoint_path, netG, netD, optimizerG, optimizerD):
     return netG, netD, optimizerG, optimizerD, checkpoint['epoch']
 
 
-if __name__ == '__main__':
-    opt = parser.parse_args()
-
-    CROP_SIZE = opt.crop_size
-    UPSCALE_FACTOR = opt.upscale_factor
-    NUM_EPOCHS = opt.num_epochs
-    LOAD_CHECKPOINT = opt.load_checkpoint
-    CHECKPOINT_PREFIX = opt.checkpoint_prefix
-
+def train_sr():
     train_set = TrainDatasetFromFolder(
         'data/DIV2K_train_HR', crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR)
     val_set = ValDatasetFromFolder(
         'data/DIV2K_valid_HR', upscale_factor=UPSCALE_FACTOR)
     train_loader = DataLoader(
-        dataset=train_set, num_workers=4, batch_size=32, shuffle=True)
+        dataset=train_set, num_workers=4, batch_size=BATCH_SIZE, shuffle=True)
     val_loader = DataLoader(dataset=val_set, num_workers=4,
                             batch_size=1, shuffle=False)
 
@@ -83,7 +82,8 @@ if __name__ == '__main__':
         ckp_path = "checkpoints/" + LOAD_CHECKPOINT
         netG, netD, optimizerG, optimizerD, start_epoch = load_ckp(
             ckp_path, netG, netD, optimizerG, optimizerD)
-        print("Loading Checkpint " + LOAD_CHECKPOINT + "\nStarting at epoch " + str(start_epoch))
+        print("loading checkpoint '" + LOAD_CHECKPOINT +
+              "'\ncontinuing from epoch " + str(start_epoch))
 
     results = {'d_loss': [], 'g_loss': [], 'd_score': [],
                'g_score': [], 'psnr': [], 'ssim': []}
@@ -109,6 +109,7 @@ if __name__ == '__main__':
             z = Variable(data)
             if torch.cuda.is_available():
                 z = z.cuda()
+            # Generate fake image
             fake_img = netG(z)
 
             netD.zero_grad()
@@ -188,7 +189,6 @@ if __name__ == '__main__':
                 utils.save_image(
                     image, out_path + 'epoch_%d_index_%d.png' % (epoch, index), padding=5)
                 index += 1
-
         # save model parameters
         torch.save(netG.state_dict(), 'epochs/netG_epoch_%d_%d.pth' %
                    (UPSCALE_FACTOR, epoch))
@@ -225,3 +225,154 @@ if __name__ == '__main__':
                 index=range(1, epoch + 1))
             data_frame.to_csv(out_path + 'srf_' + str(UPSCALE_FACTOR) +
                               '_train_results.csv', index_label='Epoch')
+
+
+def train_nima():
+
+    train_transform = transforms.Compose([
+        transforms.Resize(256),
+        transforms.RandomCrop(224),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor()])
+
+    val_transform = transforms.Compose([
+        transforms.Resize(256),
+        transforms.RandomCrop(224),
+        transforms.ToTensor()])
+
+    train_set = LoadAVADataset(AVA_LOCATION + "/train_ava.csv",
+                               AVA_LOCATION + "/images", transform=train_transform)
+    val_set = LoadAVADataset(AVA_LOCATION + "/val_ava.csv",
+                             AVA_LOCATION + "/images", transform=val_transform)
+
+    # print(len(val_set))
+    # time.sleep(10)
+
+    train_loader = DataLoader(
+        train_set, batch_size=BATCH_SIZE, shuffle=True, num_workers=4)
+    val_loader = DataLoader(val_set, batch_size=1, shuffle=True, num_workers=4)
+
+    model = NIMA()
+
+    model = model.to(DEVICE)
+
+    conv_base_lr = 3e-7
+    dense_lr = 3e-6
+    optimizer = optim.SGD([
+        {'params': model.features.parameters(), 'lr': conv_base_lr},
+        {'params': model.classifier.parameters(), 'lr': dense_lr}],
+        momentum=0.9
+    )
+
+    param_num = 0
+    for param in model.parameters():
+        param_num += int(np.prod(param.shape))
+    print('Trainable params: %.2f million' % (param_num / 1e6))
+
+    count = 0
+    init_val_loss = float('inf')
+    train_losses = []
+    val_losses = []
+    for epoch in range(1, NUM_EPOCHS):
+        # lrs.send('epoch', epoch)
+        batch_losses = []
+        for i, data in enumerate(train_loader):
+            # print("HIO")
+            images = data['image'].to(DEVICE)
+            labels = data['annotations'].to(DEVICE).float()
+            outputs = model(images)
+            outputs = outputs.view(-1, 10, 1)
+
+            optimizer.zero_grad()
+
+            loss = emd_loss(labels, outputs)
+            batch_losses.append(loss.item())
+
+            loss.backward()
+
+            optimizer.step()
+
+            # lrs.send('train_emd_loss', loss.item())
+
+            print('Epoch: %d/%d | Step: %d/%d | Training EMD loss: %.4f' % (epoch + 1,
+                                                                            NUM_EPOCHS, i + 1, len(train_set) // BATCH_SIZE + 1, loss.data[0]))
+
+        avg_loss = sum(batch_losses) / (len(train_set) //
+                                        BATCH_SIZE + 1)
+        train_losses.append(avg_loss)
+        print('Epoch %d averaged training EMD loss: %.4f' %
+              (epoch + 1, avg_loss))
+
+        # exponetial learning rate decay
+        if (epoch + 1) % 10 == 0:
+            conv_base_lr = conv_base_lr * 0.95 ** ((epoch + 1) / 10)
+            dense_lr = dense_lr * 0.95 ** ((epoch + 1) / 10)
+            optimizer = optim.SGD([
+                {'params': model.features.parameters(), 'lr': conv_base_lr},
+                {'params': model.classifier.parameters(), 'lr': dense_lr}],
+                momentum=0.9
+            )
+
+            # send decay hyperparams
+            # lrs.send({
+            #    'lr_decay_rate': config.lr_decay_rate,
+            #    'lr_decay_freq': config.lr_decay_freq,
+            #    'conv_base_lr': config.conv_base_lr,
+            #    'dense_lr': config.dense_lr
+            #    })
+
+        # do validation after each epoch
+        batch_val_losses = []
+        for data in val_loader:
+            images = data['image'].to(DEVICE)
+            labels = data['annotations'].to(DEVICE).float()
+            with torch.no_grad():
+                outputs = model(images)
+            outputs = outputs.view(-1, 10, 1)
+            val_loss = emd_loss(labels, outputs)
+            batch_val_losses.append(val_loss.item())
+        avg_val_loss = sum(batch_val_losses) / (len(val_set) // 1 + 1)
+        val_losses.append(avg_val_loss)
+
+        # lrs.send('val_emd_loss', avg_val_loss)
+
+        print('Epoch %d completed. Averaged EMD loss on val set: %.4f.' %
+              (epoch + 1, avg_val_loss))
+
+        # Use early stopping to monitor training
+        if avg_val_loss < init_val_loss:
+            init_val_loss = avg_val_loss
+            # save model weights if val loss decreases
+            print('Saving model...')
+            if not os.path.exists(config.ckpt_path):
+                os.makedirs(config.ckpt_path)
+            torch.save(model.state_dict(), os.path.join(
+                config.ckpt_path, 'epoch-%d.pkl' % (epoch + 1)))
+            print('Done.\n')
+            # reset count
+            count = 0
+        elif avg_val_loss >= init_val_loss:
+            count += 1
+            if count == PATIENCE:
+                print(
+                    'Val EMD loss has not decreased in %d epochs. Training terminated.' % PATIENCE)
+                break
+
+    print('Training completed.')
+
+
+if __name__ == '__main__':
+    opt = parser.parse_args()
+
+    CROP_SIZE = opt.crop_size
+    UPSCALE_FACTOR = opt.upscale_factor
+    NUM_EPOCHS = opt.num_epochs
+    LOAD_CHECKPOINT = opt.load_checkpoint
+    CHECKPOINT_PREFIX = opt.checkpoint_prefix
+    AVA_LOCATION = opt.ava_location
+    BATCH_SIZE = opt.batch_size
+    DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    PATIENCE = 5
+
+    # train_sr()
+    train_nima()
