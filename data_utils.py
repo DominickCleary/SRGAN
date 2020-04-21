@@ -1,9 +1,14 @@
 from os import listdir
 from os.path import join
+import os.path
 
 from PIL import Image
 from torch.utils.data.dataset import Dataset
 from torchvision.transforms import Compose, RandomCrop, ToTensor, ToPILImage, CenterCrop, Resize, Normalize
+
+import pandas as pd
+import os
+import time
 
 
 def is_image_file(filename):
@@ -108,3 +113,28 @@ class TestDatasetFromFolder(Dataset):
 
     def __len__(self):
         return len(self.lr_filenames)
+
+
+class LoadAVADataset(Dataset):
+    def __init__(self, csv_file, root_dir, transform=None):
+        self.annotations = pd.read_csv(csv_file)
+        self.root_dir = root_dir
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.annotations)
+
+    def __getitem__(self, idx):
+        img_name = os.path.join(self.root_dir, str(
+            self.annotations.iloc[idx, 0]) + '.jpg')
+
+        image = Image.open(img_name)
+        annotations = self.annotations.iloc[idx, 1:].to_numpy()
+        annotations = annotations.astype('float').reshape(-1, 1)
+        sample = {'img_id': img_name, 'image': image,
+                  'annotations': annotations}
+
+        if self.transform:
+            sample['image'] = self.transform(sample['image'])
+
+        return sample
