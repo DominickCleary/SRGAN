@@ -1,0 +1,14 @@
+data/*
+!data/.gitkeep
+
+epochs/*
+!epochs/.gitkeep
+
+benchmark_results/*
+!benchmark_results/.gitkeep
+
+checkpoints/*
+!checkpoints/.gitkeep
+
+training_results/*
+!training_results/.gitkeep

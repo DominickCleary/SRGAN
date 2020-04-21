@@ -1,6 +1,22 @@
 import math
 import torch
+import torchvision as tv
+import numpy as np
+
 from torch import nn
+from pathlib import Path
+from PIL.Image import Image
+from data_utils import aestheic_transform
+
+MODELS = {
+    "resnet18": (tv.models.resnet18, 512),
+    "resnet34": (tv.models.resnet34, 512),
+    "resnet50": (tv.models.resnet50, 2048),
+    "resnet101": (tv.models.resnet101, 2048),
+    "resnet152": (tv.models.resnet152, 2048),
+}
+
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class Generator(nn.Module):
@@ -106,7 +122,8 @@ class ResidualBlock(nn.Module):
 class UpsampleBLock(nn.Module):
     def __init__(self, in_channels, up_scale):
         super(UpsampleBLock, self).__init__()
-        self.conv = nn.Conv2d(in_channels, in_channels * up_scale ** 2, kernel_size=3, padding=1)
+        self.conv = nn.Conv2d(in_channels, in_channels *
+                              up_scale ** 2, kernel_size=3, padding=1)
         self.pixel_shuffle = nn.PixelShuffle(up_scale)
         self.prelu = nn.PReLU()
 
@@ -115,3 +132,62 @@ class UpsampleBLock(nn.Module):
         x = self.pixel_shuffle(x)
         x = self.prelu(x)
         return x
+
+
+class InferAesthetic:
+    def __init__(self):
+        self.transform = aestheic_transform()
+        model_state = torch.load(
+            "models/best_state.pth", map_location=lambda storage, loc: storage)
+        self.model = create_model(
+            model_type=model_state["model_type"], drop_out=0)
+        self.model.load_state_dict(model_state["state_dict"])
+        self.model = self.model.to(DEVICE)
+        self.model.eval()
+
+    def get_mean_score(self, score):
+        buckets = np.arange(1, 11)
+        mu = (buckets * score).sum()
+        return mu
+
+    def get_std_score(self, scores):
+        si = np.arange(1, 11)
+        mean = self.get_mean_score(scores)
+        std = np.sqrt(np.sum(((si - mean) ** 2) * scores))
+        return std
+
+    with torch.no_grad():
+        def predict(self, image):
+            image = self.transform(image)
+            image = image.unsqueeze_(0)
+            # image = image.to(DEVICE)
+            prob = self.model(image).data.cpu().numpy()[0]
+
+            mean_score = self.get_mean_score(prob)
+            std_score = self.get_std_score(prob)
+
+            return mean_score, std_score
+
+
+class NIMA(nn.Module):
+    def __init__(self, base_model: nn.Module, input_features: int, drop_out: float):
+        super(NIMA, self).__init__()
+        self.base_model = base_model
+
+        self.head = nn.Sequential(
+            nn.ReLU(inplace=True), nn.Dropout(p=drop_out), nn.Linear(
+                input_features, 10), nn.Softmax(dim=1)
+        )
+
+    def forward(self, x):
+        x = self.base_model(x)
+        x = x.view(x.size(0), -1)
+        x = self.head(x)
+        return x
+
+
+def create_model(model_type: str, drop_out: float) -> NIMA:
+    create_function, input_features = MODELS[model_type]
+    base_model = create_function(pretrained=True)
+    base_model = nn.Sequential(*list(base_model.children())[:-1])
+    return NIMA(base_model=base_model, input_features=input_features, drop_out=drop_out)

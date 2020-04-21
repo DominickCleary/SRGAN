@@ -1,7 +1,12 @@
+import time
 import torch
+import numpy as numpy
+import matplotlib.pyplot as plt
+import torchvision
+
 from torch import nn
 from torchvision.models.vgg import vgg16
-
+from model import InferAesthetic
 
 class GeneratorLoss(nn.Module):
     def __init__(self):
@@ -13,8 +18,13 @@ class GeneratorLoss(nn.Module):
         self.loss_network = loss_network
         self.mse_loss = nn.MSELoss()
         self.tv_loss = TVLoss()
+        self.aesthetic_loss = AestheticLoss()
 
     def forward(self, out_labels, out_images, target_images):
+        # torchvision.utils.save_image(target_images, "target.png")
+        # torchvision.utils.save_image(out_images, "out.png")
+
+        aesthetic_loss = self.aesthetic_loss(out_images, target_images)
         # Adversarial Loss
         adversarial_loss = torch.mean(1 - out_labels)
         # Perception Loss
@@ -32,6 +42,8 @@ class TVLoss(nn.Module):
         self.tv_loss_weight = tv_loss_weight
 
     def forward(self, x):
+        # print(len(x))
+        # time.sleep(10)
         batch_size = x.size()[0]
         h_x = x.size()[2]
         w_x = x.size()[3]
@@ -44,7 +56,19 @@ class TVLoss(nn.Module):
     @staticmethod
     def tensor_size(t):
         return t.size()[1] * t.size()[2] * t.size()[3]
-
+    
+class AestheticLoss(nn.Module):
+    def __init__(self):
+        super(AestheticLoss, self).__init__()
+        self.aesthetic_loss = InferAesthetic()
+    
+    def forward(self, x, y):
+        print("FAKE" + str(self.aesthetic_loss.predict(x[0])))
+        print("REAL" + str(self.aesthetic_loss.predict(y[0])))
+        # torchvision.utils.save_image(x[0], "fake.png")
+        # torchvision.utils.save_image(y[0], "real.png")
+        # time.sleep(5)
+            
 
 if __name__ == "__main__":
     g_loss = GeneratorLoss()
