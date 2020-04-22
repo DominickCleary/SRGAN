@@ -160,7 +160,6 @@ class InferAesthetic:
         def predict(self, image):
             image = self.transform(image)
             image = image.unsqueeze_(0)
-            # image = image.to(DEVICE)
             prob = self.model(image).data.cpu().numpy()[0]
 
             mean_score = self.get_mean_score(prob)
