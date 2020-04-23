@@ -7,6 +7,7 @@ from torch import nn
 from pathlib import Path
 from PIL.Image import Image
 from data_utils import aestheic_transform
+import time
 
 MODELS = {
     "resnet18": (tv.models.resnet18, 512),
@@ -134,8 +135,9 @@ class UpsampleBLock(nn.Module):
         return x
 
 
-class InferAesthetic:
+class InferAesthetic(nn.Module):
     def __init__(self):
+        super(InferAesthetic, self).__init__()
         self.transform = aestheic_transform()
         model_state = torch.load(
             "models/best_state.pth", map_location=lambda storage, loc: storage)
@@ -143,29 +145,31 @@ class InferAesthetic:
             model_type=model_state["model_type"], drop_out=0)
         self.model.load_state_dict(model_state["state_dict"])
         self.model = self.model.to(DEVICE)
-        self.model.eval()
+        # self.model.eval()
 
     def get_mean_score(self, score):
-        buckets = np.arange(1, 11)
-        mu = (buckets * score).sum()
+        buckets = torch.arange(1, 11).to(DEVICE)
+        mu = torch.sum(buckets * score)
         return mu
 
-    def get_std_score(self, scores):
-        si = np.arange(1, 11)
-        mean = self.get_mean_score(scores)
-        std = np.sqrt(np.sum(((si - mean) ** 2) * scores))
+    def get_std_score(self, scores, mean):
+        si = torch.arange(1, 11).to(DEVICE)
+        std = torch.sqrt(torch.sum((((si - mean) ** 2) * scores)))
         return std
 
-    with torch.no_grad():
-        def predict(self, image):
+    def forward(self, image):
+        with torch.no_grad():
             image = self.transform(image)
             image = image.unsqueeze_(0)
-            prob = self.model(image).data.cpu().numpy()[0]
+            prob = self.model(image)
 
             mean_score = self.get_mean_score(prob)
-            std_score = self.get_std_score(prob)
+            # std_score = self.get_std_score(prob, mean_score)
 
-            return mean_score, std_score
+            # Scales mean score to between 0-1, as opposed to 1-10
+            mean_score_normalised = (mean_score - 1) / 9
+
+            return mean_score_normalised
 
 
 class NIMA(nn.Module):

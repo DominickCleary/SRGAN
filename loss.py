@@ -8,6 +8,7 @@ from torch import nn
 from torchvision.models.vgg import vgg16
 from model import InferAesthetic
 
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class GeneratorLoss(nn.Module):
     def __init__(self):
@@ -22,7 +23,13 @@ class GeneratorLoss(nn.Module):
         self.aesthetic_loss = AestheticLoss()
 
     def forward(self, out_labels, out_images, target_images):
+        # Aesthetic Loss
+
+        # start = time.time()
         aesthetic_loss = self.aesthetic_loss(out_images, target_images)
+        # end = time.time()
+        # print(end - start)
+
         # Adversarial Loss
         adversarial_loss = torch.mean(1 - out_labels)
         # Perception Loss
@@ -32,8 +39,9 @@ class GeneratorLoss(nn.Module):
         image_loss = self.mse_loss(out_images, target_images)
         # TV Loss
         tv_loss = self.tv_loss(out_images)
-        return image_loss + 0.001 * adversarial_loss + 0.006 * perception_loss + 2e-8 * tv_loss + 0.005 * aesthetic_loss
-        # return image_loss + 0.001 * adversarial_loss + 0.006 * perception_loss + 2e-8 * tv_loss
+
+        result = image_loss + 0.001 * adversarial_loss + 0.006 * perception_loss + 2e-8 * tv_loss + 0.05 * aesthetic_loss
+        return result
 
 
 class TVLoss(nn.Module):
@@ -42,8 +50,6 @@ class TVLoss(nn.Module):
         self.tv_loss_weight = tv_loss_weight
 
     def forward(self, x):
-        # print(len(x))
-        # time.sleep(10)
         batch_size = x.size()[0]
         h_x = x.size()[2]
         w_x = x.size()[3]
@@ -62,21 +68,20 @@ class AestheticLoss(nn.Module):
     def __init__(self):
         super(AestheticLoss, self).__init__()
         self.aesthetic_loss = InferAesthetic()
-        self.fake_array = np.zeros(shape=(32, 2))
-        self.target_array = np.zeros(shape=(32, 2))
 
     def forward(self, out, target):
-        for x in range(0, len(out)):
-            # print("FAKE" + str(self.aesthetic_loss.predict(out[x])))
-            # print("REAL" + str(self.aesthetic_loss.predict(target[x])))
-            self.fake_array[x] = self.aesthetic_loss.predict(out[x])
-            self.target_array[x] = self.aesthetic_loss.predict(target[x])
-        fake_mean = np.mean(self.fake_array, axis=0)
-        target_mean = np.mean(self.target_array, axis=0)
 
-        # print(fake_mean[0])
-        # print(target_mean[0])
-        return target_mean[0] - fake_mean[0]
+        fake_predict = torch.Tensor(out.size()[0]).to(DEVICE)
+        target_predict = torch.Tensor(target.size()[0]).to(DEVICE)
+        
+        for x in range(0, len(out)):
+            fake_predict[x] = self.aesthetic_loss(out[x])
+            target_predict[x] = self.aesthetic_loss(target[x])
+        fake_mean = torch.mean(fake_predict)
+        target_mean = torch.mean(target_predict)
+        # Get the difference between average values of the the target and fake images
+        result = torch.abs(target_mean - fake_mean)
+        return result
 
 
 if __name__ == "__main__":
