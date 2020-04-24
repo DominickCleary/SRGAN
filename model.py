@@ -152,11 +152,6 @@ class InferAesthetic(nn.Module):
         mu = torch.sum(buckets * score)
         return mu
 
-    def get_std_score(self, scores, mean):
-        si = torch.arange(1, 11).to(DEVICE)
-        std = torch.sqrt(torch.sum((((si - mean) ** 2) * scores)))
-        return std
-
     def forward(self, image):
         with torch.no_grad():
             image = self.transform(image)
@@ -164,7 +159,6 @@ class InferAesthetic(nn.Module):
             prob = self.model(image)
 
             mean_score = self.get_mean_score(prob)
-            # std_score = self.get_std_score(prob, mean_score)
 
             # Scales mean score to between 0-1, as opposed to 1-10
             mean_score_normalised = (mean_score - 1) / 9

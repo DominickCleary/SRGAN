@@ -10,6 +10,7 @@ from model import InferAesthetic
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
 class GeneratorLoss(nn.Module):
     def __init__(self):
         super(GeneratorLoss, self).__init__()
@@ -25,7 +26,7 @@ class GeneratorLoss(nn.Module):
     def forward(self, out_labels, out_images, target_images):
         # Aesthetic Loss
 
-        # start = time.time()
+        # stardt = time.time()
         aesthetic_loss = self.aesthetic_loss(out_images, target_images)
         # end = time.time()
         # print(end - start)
@@ -40,7 +41,8 @@ class GeneratorLoss(nn.Module):
         # TV Loss
         tv_loss = self.tv_loss(out_images)
 
-        result = image_loss + 0.001 * adversarial_loss + 0.006 * perception_loss + 2e-8 * tv_loss + 0.05 * aesthetic_loss
+        result = image_loss + 0.001 * adversarial_loss + 0.006 * \
+            perception_loss + 2e-8 * tv_loss + 0.05 * aesthetic_loss
         return result
 
 
@@ -73,7 +75,7 @@ class AestheticLoss(nn.Module):
 
         fake_predict = torch.Tensor(out.size()[0]).to(DEVICE)
         target_predict = torch.Tensor(target.size()[0]).to(DEVICE)
-        
+
         for x in range(0, len(out)):
             fake_predict[x] = self.aesthetic_loss(out[x])
             target_predict[x] = self.aesthetic_loss(target[x])
