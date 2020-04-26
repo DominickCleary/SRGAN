@@ -27,6 +27,7 @@ UPSCALE_FACTOR = opt.upscale_factor
 MODEL_NAME = opt.model_name
 
 prefix = opt.model_name.split("/")[0]
+number = opt.model_name.split("/")[1].split("_")[3].split(".")[0]
 
 results = {'Set5': {'psnr': [], 'ssim': []}, 'Set14': {'psnr': [], 'ssim': []}, 'BSD100': {'psnr': [], 'ssim': []},
            'Urban100': {'psnr': [], 'ssim': []}, 'SunHays80': {'psnr': [], 'ssim': []}}
@@ -41,7 +42,7 @@ test_loader = DataLoader(dataset=test_set, num_workers=4,
                          batch_size=1, shuffle=False)
 test_bar = tqdm(test_loader, desc='[testing benchmark datasets]')
 
-out_path = "benchmark_results/" + prefix + "_SRF_" + str(UPSCALE_FACTOR) + "/"
+out_path = "benchmark_results/" + prefix + "_SRF_" + str(UPSCALE_FACTOR) + "_" + number + "/"
 if not os.path.exists(out_path):
     os.makedirs(out_path)
 with torch.no_grad():
@@ -85,4 +86,4 @@ with torch.no_grad():
         saved_results['ssim'].append(ssim)
 
     data_frame = pd.DataFrame(saved_results, results.keys())
-    data_frame.to_csv(out_path + prefix + '_srf_' + str(UPSCALE_FACTOR) + '_test_results.csv', index_label='DataSet')
+    data_frame.to_csv(out_path + prefix + '_srf_' + str(UPSCALE_FACTOR) + "_" + number + '_test_results.csv', index_label='DataSet')
