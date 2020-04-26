@@ -33,6 +33,8 @@ parser.add_argument('--batch_size', default=32,
                     type=int, help='train batch size')
 parser.add_argument('--num_workers', default=4,
                     type=int, help="amount of workers")
+parser.add_argument('--extract_model', default="",
+                    type=str, help="extract models from a checkpoint")
 
 
 def save_ckp(state, checkpoint_name):
@@ -59,6 +61,11 @@ if __name__ == '__main__':
     CHECKPOINT_PREFIX = opt.checkpoint_prefix
     BATCH_SIZE = opt.batch_size
     NUM_WORKERS = opt.num_workers
+    EXTRACT = opt.extract_model
+
+
+    if not os.path.exists("epochs/" + CHECKPOINT_PREFIX):
+        os.makedirs("epochs/" + CHECKPOINT_PREFIX)
 
     train_set = TrainDatasetFromFolder(
         'data/DIV2K_train_HR', crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR)
@@ -91,6 +98,17 @@ if __name__ == '__main__':
 
     results = {'d_loss': [], 'g_loss': [], 'd_score': [],
                'g_score': [], 'psnr': [], 'ssim': []}
+
+    if(EXTRACT != ""):
+        ckp_path = "checkpoints/" + EXTRACT
+        netG, netD, optimizerG, optimizerD, start_epoch = load_ckp(
+            ckp_path, netG, netD, optimizerG, optimizerD)
+        print("Extracting models from '" + EXTRACT + "'")
+        torch.save(netG.state_dict(), "epochs/" + CHECKPOINT_PREFIX + "/netG_epoch_%d_%d.pth" %
+                   (UPSCALE_FACTOR, start_epoch - 1))
+        torch.save(netD.state_dict(), "epochs/" + CHECKPOINT_PREFIX + "/netD_epoch_%d_%d.pth" %
+                   (UPSCALE_FACTOR, start_epoch - 1))
+        exit()
 
     if(LOAD_CHECKPOINT != ""):
         ckp_path = "checkpoints/" + LOAD_CHECKPOINT
@@ -212,22 +230,23 @@ if __name__ == '__main__':
         }
         save_ckp(checkpoint, CHECKPOINT_PREFIX + "_checkpoint_" +
                  str(UPSCALE_FACTOR) + "_" + str(epoch) + ".pth")
+
         # save model parameters
-        torch.save(netG.state_dict(), 'epochs/netG_epoch_%d_%d.pth' %
-                   (UPSCALE_FACTOR, epoch))
-        torch.save(netD.state_dict(), 'epochs/netD_epoch_%d_%d.pth' %
-                   (UPSCALE_FACTOR, epoch))
+        # torch.save(netG.state_dict(), "epochs/" + CHECKPOINT_PREFIX + "/netG_epoch_%d_%d.pth" %
+        #            (UPSCALE_FACTOR, epoch))
+        # torch.save(netD.state_dict(), "epochs/" + CHECKPOINT_PREFIX + "/netD_epoch_%d_%d.pth" %
+        #            (UPSCALE_FACTOR, epoch))
         # save loss\scores\psnr\ssim
-        results['d_loss'].append(
-            running_results['d_loss'] / running_results['batch_sizes'])
-        results['g_loss'].append(
-            running_results['g_loss'] / running_results['batch_sizes'])
-        results['d_score'].append(
-            running_results['d_score'] / running_results['batch_sizes'])
-        results['g_score'].append(
-            running_results['g_score'] / running_results['batch_sizes'])
-        results['psnr'].append(valing_results['psnr'])
-        results['ssim'].append(valing_results['ssim'])
+        # results['d_loss'].append(
+        #     running_results['d_loss'] / running_results['batch_sizes'])
+        # results['g_loss'].append(
+        #     running_results['g_loss'] / running_results['batch_sizes'])
+        # results['d_score'].append(
+        #     running_results['d_score'] / running_results['batch_sizes'])
+        # results['g_score'].append(
+        #     running_results['g_score'] / running_results['batch_sizes'])
+        # results['psnr'].append(valing_results['psnr'])
+        # results['ssim'].append(valing_results['ssim'])
 
         # if epoch % 10 == 0 and epoch != 0:
         #     out_path = 'statistics/'
